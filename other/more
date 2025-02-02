@@ -1,0 +1,101 @@
+
+To ensure your network bridge configuration persists across reboots and is secured via iptables on Ubuntu 22.04 LTS, follow these steps:
+
+1. Configure Network Interface and Bridge Persistence
+Edit or create the network configuration file for your interfaces:
+bash
+sudo nano /etc/netplan/01-netcfg.yaml
+
+Add or modify the following entries to configure your interfaces and bridge:
+yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: no
+      addresses:
+        - 134.191.216.101/25
+    eth2:
+      dhcp4: yes
+  bridges:
+    br0:
+      interfaces: [eth0, eth2]
+      addresses:
+        - 134.191.216.101/25  # Optional if you want bridge to have an IP
+      dhcp4: no
+      parameters:
+        stp: false
+        forward-delay: 0
+  routes:
+    - to: default
+      via: 134.191.216.1
+      metric: 100
+      table: main
+    - to: 192.168.1.0/24
+      via: 192.168.1.1  # Assuming eth2 gets this IP via DHCP, adjust if different
+      metric: 100
+      table: main
+
+After editing, apply the configuration:
+bash
+sudo netplan apply
+
+2. Configure iptables for Security
+First, ensure that iptables-persistent is installed so your rules persist across reboots:
+bash
+sudo apt update
+sudo apt install iptables-persistent
+Now, set up iptables rules:
+bash
+
+```bash
+# Allow outgoing traffic for all interfaces
+sudo iptables -A OUTPUT -j ACCEPT
+
+# Allow established and related incoming connections
+sudo iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow incoming traffic on the bridge interface if necessary
+sudo iptables -A INPUT -i br0 -j ACCEPT
+
+# Allow ICMP (ping) for basic network troubleshooting
+sudo iptables -A INPUT -p icmp -j ACCEPT
+
+# Allow traffic from the internal network to go out via the router
+sudo iptables -A FORWARD -i br0 -o eth0 -j ACCEPT
+
+# Allow return traffic from the internet to the internal network
+sudo iptables -A FORWARD -i eth0 -o br0 -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Drop all other incoming traffic by default
+sudo iptables -P INPUT DROP
+
+# Drop all forwarded traffic by default
+sudo iptables -P FORWARD DROP
+
+# Save the rules
+sudo netfilter-persistent save
+sudo netfilter-persistent reload
+```
+
+3. Service Configuration for Persistence
+Ensure that the netfilter-persistent service is enabled to start on boot:
+bash
+sudo systemctl enable netfilter-persistent
+
+4. Additional Considerations
+NAT: If your internal network needs to communicate with the outside world but the router doesn't perform NAT, you might need to set up NAT on node-1:
+bash
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo netfilter-persistent save
+sudo netfilter-persistent reload
+Logging: You might want to log dropped packets for monitoring:
+bash
+sudo iptables -N LOGGING
+sudo iptables -A INPUT -j LOGGING
+sudo iptables -A LOGGING -m limit --limit 2/min -j LOG --log-prefix "IPTables-Dropped: " --log-level 4
+sudo iptables -A LOGGING -j DROP
+sudo netfilter-persistent save
+sudo netfilter-persistent reload
+
+Remember to test your setup thoroughly after applying these configurations to ensure everything works as expected, especially internet access for all nodes through node-1. Also, keep in mind that network security should be continually monitored and adjusted as per your organization's security policy.
