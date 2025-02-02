@@ -1,0 +1,52 @@
+
+To achieve your goal of setting up a bridge on node-1 to act as a proxy connection between your internal network and the internet via the router's gateway, here's a step-by-step guide:
+
+Step 1: Understanding the Network Setup
+Router: Manages static IP addresses from 134.191.216.100/25 to 134.191.216.116/25. Gateway is at 134.191.216.1/25.
+Switch: Connects all 100Gi ports of nodes to a DHCP network 192.168.1.1/24.
+Nodes: Each node has:
+Two 1Gi ports connected to the router with static IPs.
+Two 100Gi ports connected to the switch with DHCP-assigned IPs.
+
+Step 2: Configure node-1 for Bridging
+Objective: Create a bridge interface on node-1 that combines both the 1Gi (static IP) and 100Gi (DHCP) networks to route traffic through the router's gateway:
+
+Install Bridging Software:
+Ensure you have the necessary tools for network bridging, like brctl on Linux systems if not already installed.
+Create a Bridge Interface:
+Use one of the 1Gi interfaces as part of the bridge since it has a static IP that can reach the gateway directly.
+
+bash
+# Create bridge interface
+sudo brctl addbr br0
+
+# Add the static IP interface to the bridge
+sudo brctl addif br0 eth0 # Assuming eth0 is NIC_1-1_IPv4
+
+# Add one of the DHCP interfaces to the bridge for internal network
+sudo brctl addif br0 eth2 # Assuming eth2 is NIC_2-1_IPv4 with DHCP
+
+# Configure the bridge with an IP (optional if DHCP is used on br0)
+sudo ip addr add 134.191.216.101/25 dev br0
+sudo ip link set br0 up
+
+# Ensure the gateway is reachable through this bridge
+sudo ip route add default via 134.191.216.1 dev br0
+Configure Routing:
+Since the router doesn't do DHCP on the static network, you need to ensure node-1 can route traffic for other nodes through this bridge:
+Set up static routes on node-1 for the 192.168.1.0/24 network to go through the bridge:
+bash
+sudo ip route add 192.168.1.0/24 dev br0
+On other nodes, add a static route pointing to node-1's IP for internet traffic:
+bash
+# On node-2, node-3, node-4, etc.
+sudo ip route add default via 134.191.216.101 dev eth0 # Assuming eth0 is the 1Gi interface
+Testing and Verification:
+Test connectivity from node-1 to the internet.
+Verify that other nodes can route through node-1 to access the internet by pinging external IPs from these nodes.
+
+Step 3: Security and Optimization Considerations
+Firewall Rules: Configure iptables or equivalent on node-1 to manage traffic flow, ensuring only necessary ports are open.
+Performance: Monitor the bridge performance, especially if node-1 becomes a bottleneck. Consider load balancing or upgrading hardware if needed.
+
+By following these steps, node-1 will act as a proxy, bridging your internal high-speed network to the internet through the corporate router's static IP setup. Remember, this configuration might need adjustments based on your specific OS, network stack, and security policies.
